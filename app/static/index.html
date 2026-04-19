@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Job Search AI</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" />
+  <link rel="stylesheet" href="/static/css/app.css" />
+</head>
+<body x-data="jobSearchApp()" x-init="init()">
+  <header class="app-bar">
+    <div class="app-bar__inner">
+      <div class="app-brand">
+        <span class="material-icons app-brand__icon">work_outline</span>
+        <div>
+          <h1>Job Search AI</h1>
+          <p>Search roles, tailor resumes, and review ATS fit</p>
+        </div>
+      </div>
+
+      <div class="app-bar__actions">
+        <span class="provider-chip">
+          <span class="material-icons md-18">smart_toy</span>
+          <span>Selected: <strong x-text="ai.provider || 'openai'"></strong></span>
+        </span>
+        <button class="button button-tonal" @click="settingsOpen = true">
+          <span class="material-icons md-18">settings</span>
+          <span>AI Settings</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-shell">
+    <section class="hero-card surface-card">
+      <div>
+        <p class="section-kicker">Overview</p>
+        <h2>Job Search using AI-powered tools.</h2>
+        <p class="hero-copy">
+          Discover relevant roles faster, tailor your resume for each opportunity, and check ATS fit from one focused workspace.
+        </p>
+      </div>
+      <div class="hero-stats">
+        <div class="stat-tile">
+          <span class="stat-label">Results</span>
+          <strong class="stat-value" x-text="jobs.length || 0"></strong>
+        </div>
+        <div class="stat-tile">
+          <span class="stat-label">Selected AI</span>
+          <strong class="stat-value stat-value--small" x-text="ai.provider || 'openai'"></strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="surface-card section-card">
+      <div class="section-head">
+        <div>
+          <p class="section-kicker">Search</p>
+          <h3>Find jobs</h3>
+        </div>
+      </div>
+
+      <div class="search-form-grid">
+        <label class="input-group input-group--wide">
+          <span class="input-label">Keywords</span>
+          <span class="input-shell">
+            <span class="material-icons md-20">search</span>
+            <input
+              type="text"
+              placeholder="Python Backend, Data Engineer, ML Engineer"
+              x-model="form.keywords"
+              @keyup.enter="runSearch()" />
+          </span>
+        </label>
+
+        <label class="input-group">
+          <span class="input-label">Location</span>
+          <span class="input-shell">
+            <span class="material-icons md-20">place</span>
+            <input
+              type="text"
+              placeholder="Bengaluru, Hyderabad, Pune"
+              x-model="form.location" />
+          </span>
+        </label>
+
+        <label class="input-group">
+          <span class="input-label">Posted after</span>
+          <span class="input-shell">
+            <span class="material-icons md-20">schedule</span>
+            <input type="date" :max="todayIso" x-model="form.posted_after" />
+          </span>
+        </label>
+
+        <label class="switch-card">
+          <input type="checkbox" x-model="form.remote_only" />
+          <div>
+            <strong>Remote only</strong>
+            <p>Only include remote-friendly roles</p>
+          </div>
+        </label>
+      </div>
+
+      <div class="section-actions">
+        <p class="helper-text" x-show="!form.keywords.trim()">
+          Enter job keywords to start searching across all available sources.
+        </p>
+        <button
+          class="button button-filled"
+          :class="loading.search ? 'is-loading' : ''"
+          :disabled="!form.keywords.trim()"
+          @click="runSearch()">
+          <span class="material-icons md-18">travel_explore</span>
+          <span>Search Jobs</span>
+        </button>
+      </div>
+
+      <div class="search-progress-card" x-show="loading.search" x-transition>
+        <div class="search-progress-card__head">
+          <div>
+            <p class="section-kicker">Searching</p>
+            <strong x-text="searchProgress.label || 'Searching jobs...'"></strong>
+          </div>
+          <span class="search-progress-card__value" x-text="(searchProgress.value || 0) + '%'"></span>
+        </div>
+        <div class="search-progress-track">
+          <div class="search-progress-bar" :style="`width: ${searchProgress.value || 0}%`"></div>
+        </div>
+        <p class="helper-text">This can take a few seconds while multiple sources respond.</p>
+      </div>
+    </section>
+
+    <section class="feedback-stack" x-show="Object.keys(searchErrors).length > 0 || errorMsg" x-transition>
+      <div class="feedback-card feedback-card--warning" x-show="Object.keys(searchErrors).length > 0">
+        <div class="feedback-head">
+          <span class="material-icons md-20">warning_amber</span>
+          <strong>Some sources could not be fetched</strong>
+        </div>
+        <ul class="feedback-list">
+          <template x-for="(err, key) in searchErrors" :key="key">
+            <li><code x-text="key"></code><span x-text="err"></span></li>
+          </template>
+        </ul>
+      </div>
+
+      <div class="feedback-card feedback-card--error" x-show="errorMsg">
+        <div class="feedback-head">
+          <span class="material-icons md-20">error</span>
+          <strong>Something went wrong</strong>
+        </div>
+        <p x-text="errorMsg"></p>
+      </div>
+    </section>
+
+    <section class="surface-card section-card" x-show="jobs.length > 0 || loading.search">
+      <div class="section-head section-head--results">
+        <div>
+          <p class="section-kicker">Results</p>
+          <h3>
+            <span x-text="jobs.length"></span> jobs
+            <span class="section-subtle" x-show="lastQuery">for "<span x-text="lastQuery"></span>"</span>
+          </h3>
+        </div>
+
+        <label class="filter-shell">
+          <span class="material-icons md-20">filter_alt</span>
+          <input type="text" placeholder="Filter results" x-model="filterText" />
+        </label>
+      </div>
+
+      <div class="results-loading-state" x-show="loading.search" x-transition>
+        <div class="loading-skeleton-card" x-for="n in 6" :key="n">
+          <div class="loading-line loading-line--short"></div>
+          <div class="loading-line loading-line--title"></div>
+          <div class="loading-line"></div>
+          <div class="loading-line"></div>
+          <div class="loading-pill-row">
+            <span class="loading-pill"></span>
+            <span class="loading-pill"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="results-grid" x-show="!loading.search">
+        <template x-for="job in filteredJobs" :key="job.id">
+          <article
+            class="job-card"
+            :class="selectedJob && selectedJob.id === job.id ? 'job-card--active' : ''"
+            @click="selectJob(job)">
+            <div class="job-card__head">
+              <div class="job-card__company-block">
+                <div class="job-card__company-mark" x-text="(job.company || '?').trim().charAt(0).toUpperCase()"></div>
+                <div>
+                  <p class="job-card__company-name" x-text="job.company || 'Unknown company'"></p>
+                  <span class="job-source" x-text="job.source"></span>
+                </div>
+              </div>
+              <span class="pill" x-show="job.remote">Remote</span>
+            </div>
+
+            <h4 class="job-card__title" x-text="job.title"></h4>
+
+            <div class="job-card__meta">
+              <p x-show="job.location">
+                <span class="material-icons md-18">place</span>
+                <span x-text="job.location"></span>
+              </p>
+              <p x-show="job.posted_at">
+                <span class="material-icons md-18">schedule</span>
+                <span x-text="job.posted_at"></span>
+              </p>
+            </div>
+
+            <p class="job-card__description" x-show="job.description" x-text="job.description"></p>
+
+            <div class="tag-row" x-show="job.tags && job.tags.length">
+              <template x-for="t in (job.tags || []).slice(0, 4)" :key="t">
+                <span class="chip chip--neutral" x-text="t"></span>
+              </template>
+            </div>
+
+            <div class="job-card__actions">
+              <a class="text-action" :href="job.url" target="_blank" rel="noopener">
+                <span class="material-icons md-18">open_in_new</span>
+                <span>Open</span>
+              </a>
+              <button class="button button-text" @click.stop.prevent="selectJob(job); scrollToPanel('action-panel')">
+                <span class="material-icons md-18">edit_note</span>
+                <span>Select</span>
+              </button>
+            </div>
+          </article>
+        </template>
+      </div>
+    </section>
+
+    <section id="action-panel" class="surface-card section-card" x-show="selectedJob" x-transition>
+      <template x-if="selectedJob">
+        <div>
+          <div class="section-head section-head--results compact-panel-head">
+            <div>
+              <p class="section-kicker">Application Tools</p>
+              <h3>Focused workspace</h3>
+              <p class="helper-text">Keep the essentials close: resume, job context, and two actions.</p>
+            </div>
+            <a class="text-action" :href="selectedJob.url" target="_blank" rel="noopener">
+              <span class="material-icons md-18">open_in_new</span>
+              <span>Open posting</span>
+            </a>
+          </div>
+
+          <div class="selected-job-banner selected-job-banner--compact">
+            <div class="selected-job-banner__main">
+              <strong x-text="selectedJob.title"></strong>
+              <span>at</span>
+              <span x-text="selectedJob.company"></span>
+            </div>
+            <div class="selected-job-banner__meta">
+              <span class="chip chip--neutral" x-show="selectedJob.location">
+                <span class="material-icons md-16">place</span>
+                <span x-text="selectedJob.location"></span>
+              </span>
+              <span class="chip chip--neutral" x-show="selectedJob.posted_at">
+                <span class="material-icons md-16">schedule</span>
+                <span x-text="selectedJob.posted_at"></span>
+              </span>
+            </div>
+          </div>
+
+          <div class="compact-workbench">
+            <div class="compact-action-strip">
+              <div class="compact-status-row">
+                <span class="chip chip--neutral">
+                  <span class="material-icons md-16">description</span>
+                  <span x-text="resume.text.trim() ? 'Resume ready' : 'Resume needed'"></span>
+                </span>
+                <span class="chip chip--neutral">
+                  <span class="material-icons md-16">subject</span>
+                  <span x-text="jobDescription.trim() ? 'Job brief ready' : 'Job brief needed'"></span>
+                </span>
+                <span class="chip chip--positive" x-show="resume.is_docx_template">
+                  <span class="material-icons md-16">style</span>
+                  <span>Template active</span>
+                </span>
+              </div>
+
+              <div class="tool-actions tool-actions--compact">
+                <button
+                  class="button action-button action-button--primary"
+                  :class="loading.resume ? 'is-loading' : ''"
+                  :disabled="!canTailor()"
+                  @click="tailorResume()">
+                  <span class="material-icons md-18">auto_awesome</span>
+                  <span>Tailor Resume</span>
+                </button>
+                <button
+                  class="button action-button action-button--secondary"
+                  :class="loading.ats ? 'is-loading' : ''"
+                  :disabled="!canScore()"
+                  @click="scoreATS()">
+                  <span class="material-icons md-18">query_stats</span>
+                  <span>Score ATS</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="compact-workbench-grid">
+              <div class="compact-editor-stack">
+                <details class="compact-card compact-card--editor" open>
+                  <summary>
+                    <div>
+                      <p class="section-kicker">Resume Source</p>
+                      <strong>Upload or paste your resume</strong>
+                    </div>
+                    <span class="helper-text" x-text="resume.filename || 'PDF, DOCX, TXT, or Markdown'"></span>
+                  </summary>
+                  <div class="compact-card__body">
+                    <label class="upload-card upload-card--compact">
+                      <input
+                        class="file-input-hidden"
+                        type="file"
+                        accept=".pdf,.docx,.txt,.md"
+                        @change="uploadResume($event)" />
+                      <span class="material-icons">upload_file</span>
+                      <strong x-text="loading.upload ? 'Parsing resume...' : 'Upload resume'"></strong>
+                      <small x-text="resume.filename || 'Reuse your existing resume as the base'"></small>
+                    </label>
+                    <p class="helper-text" x-show="resume.chars > 0">
+                      Parsed <span x-text="resume.chars"></span> characters from <span x-text="resume.filename"></span>.
+                    </p>
+                    <textarea
+                      class="material-textarea material-textarea--tight"
+                      rows="6"
+                      placeholder="Paste your resume text here..."
+                      x-model="resume.text"></textarea>
+                  </div>
+                </details>
+
+                <details class="compact-card compact-card--editor" open>
+                  <summary>
+                    <div>
+                      <p class="section-kicker">Role Context</p>
+                      <strong>Add only what the model needs</strong>
+                    </div>
+                    <span class="helper-text">Notes + job description</span>
+                  </summary>
+                  <div class="compact-card__body compact-card__body--split">
+                    <div>
+                      <label class="input-label">Candidate notes</label>
+                      <textarea
+                        class="material-textarea material-textarea--tight material-textarea--compact"
+                        rows="4"
+                        placeholder="Strengths, priorities, or details to emphasize"
+                        x-model="candidateNotes"></textarea>
+                    </div>
+                    <div>
+                      <label class="input-label">Job description</label>
+                      <textarea
+                        class="material-textarea material-textarea--tight"
+                        rows="6"
+                        placeholder="Paste the full job description here"
+                        x-model="jobDescription"></textarea>
+                    </div>
+                  </div>
+                </details>
+              </div>
+
+              <div class="compact-output-stack">
+                <div class="compact-card compact-card--output" x-show="resumeOutput.markdown" x-transition>
+                  <div class="subcard-head subcard-head--compact">
+                    <div>
+                      <p class="section-kicker">Resume Output</p>
+                      <h4>Tailored draft</h4>
+                    </div>
+                    <div class="subcard-actions">
+                      <button class="button button-text" @click="copyText(resumeOutput.markdown)">Copy</button>
+                      <button class="button button-filled button-filled--small" @click="downloadResume()">Download .docx</button>
+                    </div>
+                  </div>
+                  <p class="helper-text compact-note" x-show="resumeOutput.used_template">
+                    Your uploaded formatting template is being reused.
+                  </p>
+                  <pre class="resume-preview resume-preview--compact" x-text="resumeOutput.markdown"></pre>
+                </div>
+
+                <div class="compact-card compact-card--output" x-show="atsOutput.score !== null" x-transition>
+                  <div class="subcard-head subcard-head--compact">
+                    <div>
+                      <p class="section-kicker">ATS Review</p>
+                      <h4>Compatibility score</h4>
+                    </div>
+                    <div class="ats-score ats-score--compact" :class="scoreColor(atsOutput.score)">
+                      <span x-text="atsOutput.score"></span>
+                      <small>/100</small>
+                    </div>
+                  </div>
+
+                  <progress
+                    class="progress material-progress"
+                    :class="scoreColor(atsOutput.score)"
+                    :value="atsOutput.score || 0"
+                    max="100"></progress>
+
+                  <div class="ats-grid ats-grid--compact">
+                    <div class="ats-panel">
+                      <h5>Matched keywords</h5>
+                      <div class="tag-row">
+                        <template x-for="k in atsOutput.matched_keywords" :key="'m'+k">
+                          <span class="chip chip--positive" x-text="k"></span>
+                        </template>
+                      </div>
+                    </div>
+                    <div class="ats-panel">
+                      <h5>Missing keywords</h5>
+                      <div class="tag-row">
+                        <template x-for="k in atsOutput.missing_keywords" :key="'x'+k">
+                          <span class="chip chip--negative" x-text="k"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </div>
+
+                  <template x-if="atsOutput.recommendations.length">
+                    <div class="list-panel list-panel--compact">
+                      <h5>Recommendations</h5>
+                      <ul class="bullet-list">
+                        <template x-for="s in atsOutput.recommendations" :key="'r'+s"><li x-text="s"></li></template>
+                      </ul>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+    </section>
+  </main>
+
+  <div class="modal" :class="settingsOpen ? 'is-active' : ''">
+    <div class="modal-background" @click="settingsOpen = false"></div>
+    <div class="modal-card material-modal">
+      <header class="modal-card-head">
+        <p class="modal-card-title">
+          <span class="material-icons md-20">settings</span>
+          <span>AI Settings</span>
+        </p>
+        <button class="delete" @click="settingsOpen = false"></button>
+      </header>
+      <section class="modal-card-body">
+        <p class="helper-text">
+          The provider in this dialog is what requests will use. Keys entered here stay only in this browser session.
+        </p>
+
+        <label class="input-group">
+          <span class="input-label">Provider</span>
+          <span class="input-shell">
+            <span class="material-icons md-20">smart_toy</span>
+            <select x-model="ai.provider">
+              <option value="openai">OpenAI</option>
+              <option value="grok">Grok (x.ai)</option>
+              <option value="groq">Groq</option>
+              <option value="claude">Claude (Anthropic)</option>
+              <option value="gemini">Gemini (Google)</option>
+            </select>
+          </span>
+        </label>
+
+        <label class="input-group">
+          <span class="input-label">API key</span>
+          <span class="input-shell">
+            <span class="material-icons md-20">key</span>
+            <input class="modal-input" type="password" placeholder="Enter provider key" x-model="ai.api_key" />
+          </span>
+        </label>
+
+        <label class="input-group">
+          <span class="input-label">Model</span>
+          <span class="input-shell">
+            <span class="material-icons md-20">memory</span>
+            <input
+              class="modal-input"
+              type="text"
+              :placeholder="
+                ai.provider === 'grok' ? 'grok-2-latest'
+                : ai.provider === 'groq' ? 'llama-3.3-70b-versatile'
+                : ai.provider === 'claude' ? 'claude-sonnet-4-20250514'
+                : ai.provider === 'gemini' ? 'gemini-1.5-pro'
+                : 'gpt-4o-mini'
+              "
+              x-model="ai.model" />
+          </span>
+        </label>
+
+        <label class="input-group">
+          <span class="input-label">Feedback loops</span>
+          <span class="input-shell">
+            <span class="material-icons md-20">repeat</span>
+            <input
+              class="modal-input"
+              type="number"
+              min="1"
+              max="10"
+              step="1"
+              x-model="ai.feedback_loops" />
+          </span>
+        </label>
+
+        <p class="helper-text">
+          More loops can improve ATS optimization, but they also increase generation time and model usage. Maximum: 10.
+        </p>
+
+      </section>
+      <footer class="modal-card-foot">
+        <button class="button button-filled" @click="settingsOpen = false">Save</button>
+      </footer>
+    </div>
+  </div>
+
+  <footer class="app-footer">
+    <p>Job Search AI uses public job APIs and public careers pages. Respect LinkedIn guest search rate limits and terms.</p>
+  </footer>
+
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
