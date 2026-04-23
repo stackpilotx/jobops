@@ -98,6 +98,7 @@ class ResumeGenerateRequest(BaseModel):
     # Any of the following source materials may be provided:
     current_resume_text: Optional[str] = None
     candidate_profile: Optional[str] = None  # free-form "about me"
+    format_instructions: Optional[str] = None  # user-requested section order / output shape
     # If provided, the tailored DOCX is built from this uploaded .docx as a
     # styling template (fonts, margins, heading colors, list styles).
     template_docx_base64: Optional[str] = None

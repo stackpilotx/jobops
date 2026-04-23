@@ -13,15 +13,17 @@ MAX_FEEDBACK_LOOPS = 10
 
 
 SYSTEM_PROMPT = """You are an expert technical recruiter and resume writer.
-You produce ATS-friendly resumes that are truthful, concise and tailored to a specific job.
+You produce ATS-friendly resumes that are truthful, detailed, and tailored to a specific job.
 
 Hard rules:
 - Never fabricate employers, degrees, dates or metrics that are not present in the source material.
 - If information is missing, write a clearly-marked placeholder like "[Add metric]" so the candidate can fill it in.
 - Use plain Markdown, no tables, no columns, no images, no emojis, no fancy glyphs.
-- Use standard section headers: Summary, Skills, Experience, Education, Projects, Certifications.
+- Follow the user's requested output format exactly when format instructions are provided.
+- If no explicit format instructions are given, preserve the source resume's important sections and role history rather than collapsing it into a generic short template.
+- Keep all supported employers, titles, dates, major tools, domains, and responsibilities from the source material unless the user explicitly asks to shorten.
 - Bullet points under Experience must start with a strong action verb and, where possible, include quantified impact.
-- Keep the whole resume to roughly one page (~550-650 words).
+- Default to a complete professional resume length that preserves the candidate's detail. Do not force a one-page rewrite.
 - Mirror language from the job description naturally where it is supported by the candidate's experience.
 - Maximize ATS keyword coverage for the target job, but only using claims, tools, domains, and achievements supported by the candidate source material.
 - Ensure the Skills section explicitly includes relevant supported keywords from the job description.
@@ -45,7 +47,15 @@ Existing resume (if any):
 Additional candidate notes (if any):
 {candidate_profile}
 
+Requested output format:
+{format_instructions}
+
 Produce a tailored resume in Markdown following the rules in the system prompt.
+Before writing, make sure you have carried forward all important details from the candidate source material:
+- every employer, title, and date range
+- all clearly supported technical skills, platforms, and domains
+- the strongest responsibilities and achievements from each role
+
 Output ONLY the resume markdown, no preamble, no trailing commentary.
 """
 
@@ -68,6 +78,9 @@ Existing resume:
 Additional candidate notes:
 {candidate_profile}
 
+Requested output format:
+{format_instructions}
+
 Current tailored draft
 ----------------------
 {draft_resume}
@@ -89,10 +102,10 @@ Job-description keywords still missing from the current draft:
 
 Instructions:
 - Improve ATS match without fabricating any experience.
-- Preserve concise, strong, professional resume writing.
+- Preserve strong, professional resume writing without dropping important supported source details.
 - Add missing supported keywords into Summary, Skills, Experience, or Projects where justified.
-- Keep standard headers and ATS-safe formatting.
-- If the draft already covers the supported keywords well, tighten phrasing rather than expanding unnecessarily.
+- Keep ATS-safe formatting and follow the requested output format.
+- If the draft already covers the supported keywords well, tighten phrasing without removing key source content.
 - Prefer stronger professional phrasing, clearer prioritization, and more concrete impact statements where the source material supports it.
 
 Output ONLY the revised resume markdown, no commentary.
@@ -148,12 +161,17 @@ def generate_resume_markdown(
     company: str = "",
     current_resume_text: str | None = None,
     candidate_profile: str | None = None,
+    format_instructions: str | None = None,
     feedback_loops: int = DEFAULT_FEEDBACK_LOOPS,
 ) -> str:
     loop_count = max(1, min(int(feedback_loops), MAX_FEEDBACK_LOOPS))
     source_resume = (current_resume_text or "[none provided]").strip()[:12000]
     source_notes = (candidate_profile or "[none provided]").strip()[:4000]
     trimmed_jd = (job_description or "").strip()[:8000]
+    requested_format = (format_instructions or "").strip()[:3000] or (
+        "Preserve the source resume's section structure and detail level. "
+        "Keep all roles, dates, and important points from the uploaded resume."
+    )
 
     user = USER_TEMPLATE.format(
         company=company or "[Unspecified]",
@@ -161,6 +179,7 @@ def generate_resume_markdown(
         job_description=trimmed_jd,
         current_resume=source_resume,
         candidate_profile=source_notes,
+        format_instructions=requested_format,
     )
     draft = chat(creds, SYSTEM_PROMPT, user).strip()
 
@@ -189,6 +208,7 @@ def generate_resume_markdown(
             job_description=trimmed_jd,
             current_resume=source_resume,
             candidate_profile=source_notes,
+            format_instructions=requested_format,
             draft_resume=current_resume[:12000],
             iteration=iteration,
             max_iterations=loop_count,

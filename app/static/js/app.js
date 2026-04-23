@@ -54,6 +54,7 @@ function jobSearchApp() {
     },
     candidateNotes: "",
     jobDescription: "",
+    resumeFormatInstructions: "Preserve the original resume's section order and keep all roles, dates, and important details. Tailor wording to the selected job without dropping source content.",
 
     resumeOutput: { markdown: "", docx_base64: "", filename: "", used_template: false },
     atsOutput: {
@@ -242,6 +243,7 @@ function jobSearchApp() {
             job_description: this.jobDescription,
             current_resume_text: this.resume.text,
             candidate_profile: this.candidateNotes,
+            format_instructions: this.resumeFormatInstructions,
             feedback_loops: Number(this.ai.feedback_loops) || 10,
             // Re-use the uploaded .docx as a styling template when available.
             template_docx_base64: this.resume.template_docx_base64 || null,

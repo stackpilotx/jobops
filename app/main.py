@@ -306,6 +306,7 @@ async def api_resume_generate(req: ResumeGenerateRequest) -> ResumeGenerateRespo
             company=req.company,
             current_resume_text=req.current_resume_text,
             candidate_profile=req.candidate_profile,
+            format_instructions=req.format_instructions,
             feedback_loops=req.feedback_loops,
         )
     except AIClientError as exc:
